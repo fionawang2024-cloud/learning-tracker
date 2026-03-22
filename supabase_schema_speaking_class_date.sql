@@ -1,0 +1,1 @@
+-- 已弃用：请使用 supabase_schema_speaking_score_date.sql（列名为 score_date，onConflict: student_id,score_date）。
