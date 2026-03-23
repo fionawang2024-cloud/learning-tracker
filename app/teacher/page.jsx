@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { toPng } from "html-to-image";
 import { supabase } from "@/lib/supabaseClient";
-import { isTeacherEmail, SEMESTER_START } from "@/lib/constants";
+import { SEMESTER_START } from "@/lib/constants";
+import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { formatTimeMinutes } from "@/lib/timeFormat";
 import { hasDevTeacherAccess } from "@/lib/devMode";
 import {
@@ -29,6 +30,7 @@ import {
 import { FeedReadingWeekCalendar } from "@/components/teacher/FeedReadingWeekCalendar";
 import { DiaryWeekDaysPicker } from "@/components/teacher/DiaryWeekDaysPicker";
 import { buildActivityFeedItems, filterActivityFeedItems, localYMD } from "@/lib/teacherActivityFeed";
+import { formatStudentDisplayName } from "@/lib/studentDisplayName";
 import { normalizeDiaryDaysArray } from "@/lib/diaryDate";
 import { normalizeReadingDaysArray } from "@/lib/readingRecordOcr";
 import { dateInRange, computeWeeklyNewWordsFromReadings } from "@/lib/weeklyReadingWords";
@@ -53,8 +55,7 @@ function buildRangeReport(students, startStr, endStr, diaryByStudent, readingByS
     const readings = readingByStudent[s.id] || [];
     const speakings = speakingByStudent[s.id] || [];
 
-    const displayName =
-      (s.display_name || "").trim() || (s.email || "").split("@")[0] || s.email;
+    const displayName = formatStudentDisplayName(s);
 
     const diaryDays = new Set();
     diaries.forEach((r) => {
@@ -162,6 +163,8 @@ function speakingHistoricalAttendancePercent(allScores, studentId) {
 
 export default function TeacherPage() {
   const [user, setUser] = useState(null);
+  /** 服务端白名单或开发模式「教师视角」 */
+  const [teacherAccessOk, setTeacherAccessOk] = useState(false);
   const [students, setStudents] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -216,11 +219,17 @@ export default function TeacherPage() {
         setLoading(false);
         return;
       }
-      if (!isTeacherEmail(u.email)) {
+      setUser(u);
+      let allowed = hasDevTeacherAccess();
+      if (!allowed) {
+        const { authorized } = await fetchTeacherAuthorization();
+        allowed = authorized;
+      }
+      setTeacherAccessOk(allowed);
+      if (!allowed) {
         setLoading(false);
         return;
       }
-      setUser(u);
       const list = await listStudents();
       setStudents(list);
       try {
@@ -417,7 +426,7 @@ export default function TeacherPage() {
   const filteredStudents = searchQuery.trim()
     ? students.filter(
         (s) =>
-          ((s.display_name || "").trim() || (s.email || "").split("@")[0] || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          formatStudentDisplayName(s).toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.email || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
     : students;
@@ -470,11 +479,24 @@ export default function TeacherPage() {
     );
   }
 
-  if (!isTeacherEmail(user.email) && !hasDevTeacherAccess()) {
+  if (!teacherAccessOk) {
     return (
-      <div className="space-y-4">
-        <p className="text-gray-600">无权限访问，仅教师可进入</p>
-        <Link href="/" className="text-blue-600 hover:underline">返回首页</Link>
+      <div className="space-y-4 max-w-md">
+        <p className="text-gray-900 font-medium">该账号没有教师权限</p>
+        <p className="text-sm text-gray-600">
+          如需使用教师端，请联系管理员将您的邮箱加入教师白名单；学生请使用「我是学生」登录入口。
+        </p>
+        <div className="flex flex-col gap-2">
+          <Link href="/student" className="text-teal-700 hover:underline font-medium">
+            前往学生端
+          </Link>
+          <Link href="/login" className="text-teal-600 hover:underline text-sm">
+            重新登录
+          </Link>
+          <Link href="/" className="text-gray-500 hover:underline text-sm">
+            返回首页
+          </Link>
+        </div>
       </div>
     );
   }
@@ -599,7 +621,7 @@ export default function TeacherPage() {
                     <TableRow key={s.id}>
                       <TableCell>
                         <Link href={`/teacher/student/${s.id}`} className="text-blue-600 hover:underline font-medium">
-                          {(s.display_name || "").trim() || (s.email || "").split("@")[0] || s.email}
+                          {formatStudentDisplayName(s)}
                         </Link>
                       </TableCell>
                       <TableCell className="text-gray-500">{s.email}</TableCell>
@@ -894,8 +916,7 @@ export default function TeacherPage() {
                   </TableHeader>
                   <TableBody>
                     {speakingStudentsList.map((s) => {
-                      const name =
-                        (s.display_name || "").trim() || (s.email || "").split("@")[0] || s.email;
+                      const name = formatStudentDisplayName(s);
                       const saved = allSpeakingScores.find(
                         (r) => r.student_id === s.id && speakingScoreClassDate(r) === speakingCourseDate
                       );

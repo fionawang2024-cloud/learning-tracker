@@ -4,15 +4,15 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { isTeacherEmail } from "@/lib/constants";
 import { hasDevTeacherAccess } from "@/lib/devMode";
+import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showTeacherButton, setShowTeacherButton] = useState(false);
+  const [showTeacherEntry, setShowTeacherEntry] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user: u } }) => {
@@ -22,8 +22,18 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    setShowTeacherButton(hasDevTeacherAccess());
-  }, []);
+    if (!user) {
+      setShowTeacherEntry(false);
+      return;
+    }
+    if (hasDevTeacherAccess()) {
+      setShowTeacherEntry(true);
+      return;
+    }
+    fetchTeacherAuthorization().then(({ authorized }) => {
+      setShowTeacherEntry(!!authorized);
+    });
+  }, [user]);
 
   if (loading) {
     return (
@@ -54,7 +64,7 @@ export default function Home() {
                     学生端
                   </Button>
                 </Link>
-                {(isTeacherEmail(user.email) || showTeacherButton) && (
+                {showTeacherEntry && (
                   <Link href="/teacher">
                     <Button variant="secondary" className="w-full sm:w-auto">
                       教师端

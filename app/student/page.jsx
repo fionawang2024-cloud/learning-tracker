@@ -13,8 +13,11 @@ import {
 import {
   deriveReadingDaysDescending,
   normalizeDailyRecordsJson,
+  normalizeReadingDaysArray,
 } from "@/lib/readingRecordOcr";
 import { getAndClearPendingDisplayName } from "@/lib/pendingDisplayName";
+import { formatStudentDisplayName } from "@/lib/studentDisplayName";
+import { emitStudentRecordsUpdated } from "@/lib/studentRecordsEvents";
 import { uploadDiaryImage, uploadReadingImage } from "@/lib/storage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -39,8 +42,8 @@ export default function StudentPage() {
   const [loading, setLoading] = useState(true);
   const [showBucketBanner, setShowBucketBanner] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [diarySuccessCount, setDiarySuccessCount] = useState(0);
-  const [readingSuccessCount, setReadingSuccessCount] = useState(0);
+  const [diarySuccess, setDiarySuccess] = useState(null);
+  const [readingSuccess, setReadingSuccess] = useState(null);
   const [diarySaving, setDiarySaving] = useState(false);
   const [readingSaving, setReadingSaving] = useState(false);
 
@@ -89,16 +92,28 @@ export default function StudentPage() {
   }, []);
 
   useEffect(() => {
-    if (diarySuccessCount === 0) return;
-    const t = setTimeout(() => setDiarySuccessCount(0), 3000);
+    if (!diarySuccess) return;
+    const t = setTimeout(() => setDiarySuccess(null), 6000);
     return () => clearTimeout(t);
-  }, [diarySuccessCount]);
+  }, [diarySuccess]);
 
   useEffect(() => {
-    if (readingSuccessCount === 0) return;
-    const t = setTimeout(() => setReadingSuccessCount(0), 3000);
+    if (!readingSuccess) return;
+    const t = setTimeout(() => setReadingSuccess(null), 6000);
     return () => clearTimeout(t);
-  }, [readingSuccessCount]);
+  }, [readingSuccess]);
+
+  async function refreshStudentAfterUpload() {
+    if (!user) return;
+    try {
+      let s = await getOrCreateStudent(user);
+      if (s) {
+        s = await ensureStudentDisplayNameIfEmpty(s, user, getAndClearPendingDisplayName);
+        setStudent(s);
+      }
+      emitStudentRecordsUpdated();
+    } catch (_) {}
+  }
 
   const revokeUrls = useCallback((urls) => {
     urls.forEach((u) => {
@@ -190,9 +205,10 @@ export default function StudentPage() {
           corrected_text: "",
         });
       }
-      setDiarySuccessCount(items.length);
+      setDiarySuccess({ photos: items.length });
       items.forEach((item) => revokeUrls([item.previewUrl]));
       setDiaryItems([]);
+      await refreshStudentAfterUpload();
     } catch (err) {
       if (isBucketMissingError(err)) setShowBucketBanner(true);
       else setUploadError(err?.message || "上传失败，请重试");
@@ -208,6 +224,7 @@ export default function StudentPage() {
     setShowBucketBanner(false);
     const today = new Date().toISOString().slice(0, 10);
     const items = readingItems;
+    const recognizedDaysInBatch = new Set();
     try {
       for (let i = 0; i < items.length; i++) {
         const path = await uploadReadingImage(student.id, items[i].file, i);
@@ -246,6 +263,8 @@ export default function StudentPage() {
           Array.isArray(extraction.reading_days) && extraction.reading_days.length > 0
             ? extraction.reading_days
             : deriveReadingDaysDescending(dailyNorm);
+
+        normalizeReadingDaysArray(readingDaysPersist).forEach((d) => recognizedDaysInBatch.add(d));
 
         const readingInsertPayload = {
           student_id: student.id,
@@ -298,9 +317,13 @@ export default function StudentPage() {
           throw persistErr;
         }
       }
-      setReadingSuccessCount(items.length);
+      setReadingSuccess({
+        photos: items.length,
+        daysRecognized: recognizedDaysInBatch.size,
+      });
       items.forEach((item) => revokeUrls([item.previewUrl]));
       setReadingItems([]);
+      await refreshStudentAfterUpload();
     } catch (err) {
       if (isBucketMissingError(err)) setShowBucketBanner(true);
       else setUploadError(err?.message || "上传失败，请重试");
@@ -344,94 +367,26 @@ export default function StudentPage() {
     return <Alert variant="error">无法加载学生资料</Alert>;
   }
 
-  const displayName = (student.display_name || "").trim() || "同学";
+  const displayName = formatStudentDisplayName(student, "同学");
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-10 pb-8 sm:pb-10 max-w-lg mx-auto w-full min-w-0">
       {showBucketBanner && <Alert variant="warning">{BUCKET_BANNER_ZH}</Alert>}
       {uploadError && <Alert variant="error">{uploadError}</Alert>}
 
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-lg text-gray-800">你好呀，{displayName}，开始今天的英语学习吧！</p>
-        </CardContent>
-      </Card>
+      <div className="rounded-2xl border border-teal-100/80 bg-white/90 px-4 py-4 sm:px-5 sm:py-5 shadow-sm">
+        <p className="text-lg sm:text-xl font-semibold text-gray-900 leading-snug break-words">
+          你好，
+          <span className="block sm:inline sm:ml-1">{displayName}</span>
+        </p>
+        <p className="text-xs sm:text-sm text-gray-600 mt-2 leading-relaxed">
+          阅读记录在上、日记在下。顶部可切换到「历史学习记录」查看打卡与批改。
+        </p>
+      </div>
 
-      <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
-        {/* 上传英语日记 */}
-        <Card className="overflow-hidden">
-          <input
-            ref={diaryInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={onDiarySelect}
-            disabled={diarySaving}
-          />
-          <div className="p-6 space-y-4">
-            <button
-              type="button"
-              onClick={() => diaryInputRef.current?.click()}
-              disabled={diarySaving}
-              className="w-full min-h-[140px] flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-teal-200 bg-teal-50 hover:bg-teal-100 hover:border-teal-300 transition-colors cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2"
-            >
-              <span className="text-4xl" aria-hidden>📔</span>
-              <span className="text-lg font-semibold text-gray-800">上传英语日记</span>
-              <span className="text-sm text-gray-600">点击选择多张图片</span>
-            </button>
-
-            {diaryPreviewList && (
-              <>
-                <div className="flex flex-wrap gap-3">
-                  {diaryItems.map((item, i) => (
-                    <div key={item.id} className="relative group">
-                      <button
-                        type="button"
-                        onClick={() => setPreviewModal({ type: "diary", index: i })}
-                        className="block w-20 h-20 rounded-xl overflow-hidden border-2 border-teal-200 bg-gray-100 focus-visible:ring-2 focus-visible:ring-teal-400"
-                      >
-                        <img
-                          src={item.previewUrl}
-                          alt={`预览 ${i + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeDiaryAt(i);
-                        }}
-                        className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-red-500 text-white text-lg leading-none flex items-center justify-center shadow hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-offset-1"
-                        aria-label="删除"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  onClick={startDiaryUpload}
-                  disabled={diarySaving}
-                  className="w-full"
-                >
-                  {diarySaving ? "上传中…" : "开始上传"}
-                </Button>
-              </>
-            )}
-            {diarySuccessCount > 0 && (
-              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
-                <p className="text-sm font-medium text-emerald-800">
-                  上传成功：已上传 {diarySuccessCount} 张照片
-                </p>
-              </div>
-            )}
-          </div>
-        </Card>
-
+      <div className="flex flex-col gap-6 sm:gap-10">
         {/* 上传阅读记录 */}
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden shadow-sm border-teal-100/60">
           <input
             ref={readingInputRef}
             type="file"
@@ -441,30 +396,34 @@ export default function StudentPage() {
             onChange={onReadingSelect}
             disabled={readingSaving}
           />
-          <div className="p-6 space-y-4">
+          <div className="p-4 sm:p-7 space-y-4 sm:space-y-5">
             <button
               type="button"
               onClick={() => readingInputRef.current?.click()}
               disabled={readingSaving}
-              className="w-full min-h-[140px] flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-teal-200 bg-teal-50 hover:bg-teal-100 hover:border-teal-300 transition-colors cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2"
+              className="w-full min-h-[156px] sm:min-h-[172px] flex flex-col items-center justify-center gap-2 sm:gap-3 px-4 sm:px-6 py-6 sm:py-8 rounded-2xl border-2 border-teal-200 bg-gradient-to-b from-teal-50/90 to-teal-50 hover:from-teal-100 hover:to-teal-50 hover:border-teal-300 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 shadow-sm"
             >
-              <span className="text-4xl" aria-hidden>📷</span>
-              <span className="text-lg font-semibold text-gray-800">拍摄阅读记录</span>
-              <span className="text-sm text-gray-600 text-center px-2">
-                请直接拍摄平板上的阅读记录页面
+              <span className="text-4xl sm:text-5xl" aria-hidden>
+                📷
               </span>
-              <span className="text-base font-semibold text-teal-700">打开相机拍照</span>
+              <span className="text-lg sm:text-xl font-bold text-gray-900 text-center px-1">
+                上传阅读记录
+              </span>
+              <span className="text-sm text-gray-600 text-center px-2 leading-relaxed">
+                请拍摄平板上的阅读记录页面（单张）
+              </span>
+              <span className="text-base font-semibold text-teal-700">点这里打开相机</span>
             </button>
 
             {readingPreviewList && (
               <>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-4">
                   {readingItems.map((item, i) => (
                     <div key={item.id} className="relative group">
                       <button
                         type="button"
                         onClick={() => setPreviewModal({ type: "reading", index: i })}
-                        className="block w-20 h-20 rounded-xl overflow-hidden border-2 border-teal-200 bg-gray-100 focus-visible:ring-2 focus-visible:ring-teal-400"
+                        className="block w-24 h-24 rounded-2xl overflow-hidden border-2 border-teal-200 bg-gray-100 focus-visible:ring-2 focus-visible:ring-teal-400"
                       >
                         <img
                           src={item.previewUrl}
@@ -478,7 +437,7 @@ export default function StudentPage() {
                           e.stopPropagation();
                           removeReadingAt(i);
                         }}
-                        className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-red-500 text-white text-lg leading-none flex items-center justify-center shadow hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-offset-1"
+                        className="absolute -top-1 -right-1 w-9 h-9 rounded-full bg-red-500 text-white text-xl leading-none flex items-center justify-center shadow hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-offset-1"
                         aria-label="删除"
                       >
                         ×
@@ -489,22 +448,123 @@ export default function StudentPage() {
                 <Button
                   onClick={startReadingUpload}
                   disabled={readingSaving}
-                  className="w-full"
+                  className="w-full min-h-12 text-base font-semibold rounded-xl"
                 >
-                  {readingSaving ? "上传中…" : "开始上传"}
+                  {readingSaving ? "上传中…" : "开始上传阅读记录"}
                 </Button>
               </>
             )}
-            {readingSuccessCount > 0 && (
-              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
-                <p className="text-sm font-medium text-emerald-800">
-                  上传成功：已上传 {readingSuccessCount} 张照片
+            {readingSuccess && (
+              <div
+                className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 px-5 py-5 text-center space-y-2"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="text-base font-bold text-emerald-900">阅读记录上传成功</p>
+                <p className="text-sm text-emerald-900/90 leading-relaxed">
+                  已成功保存 {readingSuccess.photos} 张照片到系统。
+                </p>
+                {readingSuccess.daysRecognized > 0 ? (
+                  <p className="text-sm text-emerald-900/90 leading-relaxed font-medium">
+                    识别到 {readingSuccess.daysRecognized} 个阅读打卡日期。请到顶部「历史学习记录」核对打卡日历。
+                  </p>
+                ) : (
+                  <p className="text-sm text-amber-900/90 leading-relaxed">
+                    本次未识别到具体阅读日期，可请老师在后台核对或补录。
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* 上传英语日记 */}
+        <Card className="overflow-hidden shadow-sm border-teal-100/60">
+          <input
+            ref={diaryInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={onDiarySelect}
+            disabled={diarySaving}
+          />
+          <div className="p-4 sm:p-7 space-y-4 sm:space-y-5">
+            <button
+              type="button"
+              onClick={() => diaryInputRef.current?.click()}
+              disabled={diarySaving}
+              className="w-full min-h-[156px] sm:min-h-[172px] flex flex-col items-center justify-center gap-2 sm:gap-3 px-4 sm:px-6 py-6 sm:py-8 rounded-2xl border-2 border-teal-200 bg-gradient-to-b from-teal-50/90 to-teal-50 hover:from-teal-100 hover:to-teal-50 hover:border-teal-300 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 shadow-sm"
+            >
+              <span className="text-4xl sm:text-5xl" aria-hidden>
+                📔
+              </span>
+              <span className="text-lg sm:text-xl font-bold text-gray-900 text-center px-1">
+                上传英语日记
+              </span>
+              <span className="text-sm text-gray-600 text-center leading-relaxed">
+                可选择多张日记照片一次性上传
+              </span>
+            </button>
+
+            {diaryPreviewList && (
+              <>
+                <div className="flex flex-wrap gap-4">
+                  {diaryItems.map((item, i) => (
+                    <div key={item.id} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModal({ type: "diary", index: i })}
+                        className="block w-24 h-24 rounded-2xl overflow-hidden border-2 border-teal-200 bg-gray-100 focus-visible:ring-2 focus-visible:ring-teal-400"
+                      >
+                        <img
+                          src={item.previewUrl}
+                          alt={`预览 ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeDiaryAt(i);
+                        }}
+                        className="absolute -top-1 -right-1 w-9 h-9 rounded-full bg-red-500 text-white text-xl leading-none flex items-center justify-center shadow hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-offset-1"
+                        aria-label="删除"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  onClick={startDiaryUpload}
+                  disabled={diarySaving}
+                  className="w-full min-h-12 text-base font-semibold rounded-xl"
+                >
+                  {diarySaving ? "上传中…" : "开始上传英语日记"}
+                </Button>
+              </>
+            )}
+            {diarySuccess && (
+              <div
+                className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 px-5 py-5 text-center space-y-2"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="text-base font-bold text-emerald-900">英语日记上传成功</p>
+                <p className="text-sm text-emerald-900/90 leading-relaxed">
+                  已成功上传 {diarySuccess.photos} 张照片。老师批改后，你可以在「历史学习记录」里查看反馈。
                 </p>
               </div>
             )}
           </div>
         </Card>
       </div>
+
+      <p className="text-center text-xs text-gray-500 leading-relaxed px-1 pt-1">
+        查看打卡日历与日记批改：点顶部「历史学习记录」分段按钮即可。
+      </p>
 
       {/* Preview modal */}
       {previewModal && previewModalItems?.length > 0 && (

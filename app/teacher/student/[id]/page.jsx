@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { isTeacherEmail } from "@/lib/constants";
+import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { hasDevTeacherAccess } from "@/lib/devMode";
 import {
   listStudents,
@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Badge } from "@/components/ui/Badge";
 import { Tabs } from "@/components/ui/Tabs";
 import { formatDiaryDaysDisplay } from "@/lib/diaryDate";
+import { formatStudentDisplayName } from "@/lib/studentDisplayName";
 import { DiaryWeekDaysPicker } from "@/components/teacher/DiaryWeekDaysPicker";
 import {
   normalizeReadingRecordForCalendar,
@@ -153,6 +154,7 @@ export default function TeacherStudentPage() {
   const [readingRecords, setReadingRecords] = useState([]);
   const [speakingScores, setSpeakingScores] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [teacherAccessOk, setTeacherAccessOk] = useState(false);
   const [feedbackEdits, setFeedbackEdits] = useState({});
   const [readingEdits, setReadingEdits] = useState({});
   const [savingDiary, setSavingDiary] = useState(null);
@@ -189,11 +191,17 @@ export default function TeacherStudentPage() {
         setLoading(false);
         return;
       }
-      if (!isTeacherEmail(u.email) && !hasDevTeacherAccess()) {
+      setUser(u);
+      let allowed = hasDevTeacherAccess();
+      if (!allowed) {
+        const { authorized } = await fetchTeacherAuthorization();
+        allowed = authorized;
+      }
+      setTeacherAccessOk(allowed);
+      if (!allowed) {
         setLoading(false);
         return;
       }
-      setUser(u);
       console.log("[teacher-student] initial load: listStudents");
       const students = await listStudents();
       const s = students.find((x) => x.id === id);
@@ -460,11 +468,35 @@ export default function TeacherStudentPage() {
     );
   }
 
-  if (!user || (!isTeacherEmail(user.email) && !hasDevTeacherAccess())) {
+  if (!user) {
     return (
       <div className="space-y-4">
-        <p className="text-gray-600">无权限访问</p>
-        <Link href="/" className="text-blue-600 hover:underline">返回首页</Link>
+        <p className="text-gray-600">未登录</p>
+        <Link href="/login" className="text-teal-600 hover:underline">
+          去登录
+        </Link>
+      </div>
+    );
+  }
+
+  if (!teacherAccessOk) {
+    return (
+      <div className="space-y-4 max-w-md">
+        <p className="text-gray-900 font-medium">该账号没有教师权限</p>
+        <p className="text-sm text-gray-600">
+          无法查看学生详情。请使用已授权的教师账号登录，或使用学生端入口。
+        </p>
+        <div className="flex flex-col gap-2">
+          <Link href="/student" className="text-teal-700 hover:underline font-medium">
+            前往学生端
+          </Link>
+          <Link href="/login" className="text-teal-600 hover:underline text-sm">
+            重新登录
+          </Link>
+          <Link href="/" className="text-gray-500 hover:underline text-sm">
+            返回首页
+          </Link>
+        </div>
       </div>
     );
   }
@@ -498,7 +530,7 @@ export default function TeacherStudentPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <CardTitle>{(student.display_name || "").trim() || (student.email || "").split("@")[0] || student.email}</CardTitle>
+              <CardTitle>{formatStudentDisplayName(student)}</CardTitle>
               <CardDescription>{student.email}</CardDescription>
             </div>
             <div className="flex items-center gap-3">

@@ -12,8 +12,25 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
+import { STUDENT_RECORDS_UPDATED_EVENT } from "@/lib/studentRecordsEvents";
+import { formatStudentDisplayName } from "@/lib/studentDisplayName";
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+
+function filterRecordsForSemesterWindow(diary, reading, semesterStart, todayKey) {
+  const start = semesterStart;
+  const end = todayKey;
+  const diaryFiltered = diary.filter((r) =>
+    normalizeDiaryDaysArray(r).some((d) => d >= start && d <= end)
+  );
+  const readingFiltered = reading.filter((r) => {
+    const days = normalizeReadingDaysArray(r.reading_days);
+    if (days.some((d) => d >= start && d <= end)) return true;
+    const ca = r.created_at ? r.created_at.slice(0, 10) : null;
+    return ca && ca >= start && ca <= end;
+  });
+  return { diaryFiltered, readingFiltered };
+}
 
 /** Local calendar YYYY-MM-DD (not UTC from toISOString). */
 function localDateKey(d = new Date()) {
@@ -171,21 +188,14 @@ export default function StudentHistoryPage() {
         listReadingByStudent(s.id),
       ]);
       if (!cancelled) {
-        const start = semesterStart;
-        const end = todayKey;
-        setDiaryRecords(
-          diary.filter((r) =>
-            normalizeDiaryDaysArray(r).some((d) => d >= start && d <= end)
-          )
+        const { diaryFiltered, readingFiltered } = filterRecordsForSemesterWindow(
+          diary,
+          reading,
+          semesterStart,
+          todayKey
         );
-        setReadingRecords(
-          reading.filter((r) => {
-            const days = normalizeReadingDaysArray(r.reading_days);
-            if (days.some((d) => d >= start && d <= end)) return true;
-            const ca = r.created_at ? r.created_at.slice(0, 10) : null;
-            return ca && ca >= start && ca <= end;
-          })
-        );
+        setDiaryRecords(diaryFiltered);
+        setReadingRecords(readingFiltered);
       }
       setLoading(false);
     })();
@@ -193,6 +203,30 @@ export default function StudentHistoryPage() {
       cancelled = true;
     };
   }, [semesterStart, todayKey]);
+
+  useEffect(() => {
+    if (!student?.id) return undefined;
+    function onRecordsUpdated() {
+      (async () => {
+        try {
+          const [diary, reading] = await Promise.all([
+            listDiaryByStudent(student.id),
+            listReadingByStudent(student.id),
+          ]);
+          const { diaryFiltered, readingFiltered } = filterRecordsForSemesterWindow(
+            diary,
+            reading,
+            semesterStart,
+            todayKey
+          );
+          setDiaryRecords(diaryFiltered);
+          setReadingRecords(readingFiltered);
+        } catch (_) {}
+      })();
+    }
+    window.addEventListener(STUDENT_RECORDS_UPDATED_EVENT, onRecordsUpdated);
+    return () => window.removeEventListener(STUDENT_RECORDS_UPDATED_EVENT, onRecordsUpdated);
+  }, [student?.id, semesterStart, todayKey]);
 
   const calendarGrid = useMemo(() => {
     const daysInMonth = getDaysInMonth(viewYear, viewMonth);
@@ -205,7 +239,9 @@ export default function StudentHistoryPage() {
       for (let col = 0; col < 7; col++) {
         const cellIndex = row * 7 + col;
         if (cellIndex < startOffset || day > daysInMonth) {
-          cells.push(<div key={`${row}-${col}`} className="min-h-[44px] rounded-xl bg-gray-50/50" />);
+          cells.push(
+            <div key={`${row}-${col}`} className="min-h-[38px] sm:min-h-[44px] rounded-lg sm:rounded-xl bg-gray-50/50" />
+          );
         } else {
           const dateKey = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
           const hasReading = readingCompletedDates.has(dateKey);
@@ -214,7 +250,7 @@ export default function StudentHistoryPage() {
           const hasFeedback = datesWithFeedback.has(dateKey);
           const isToday = dateKey === todayKey;
           let cellClass =
-            "min-h-[44px] rounded-xl border-2 text-sm font-medium transition flex flex-col items-center justify-center gap-0.5 ";
+            "min-h-[38px] sm:min-h-[44px] rounded-lg sm:rounded-xl border-2 text-xs sm:text-sm font-medium transition flex flex-col items-center justify-center gap-0.5 px-0.5 ";
           if (!isCompleted) {
             cellClass += "border-transparent bg-gray-50/50 text-gray-400 cursor-default";
           } else if (hasReading && hasDiary) {
@@ -257,7 +293,7 @@ export default function StudentHistoryPage() {
         }
       }
       rows.push(
-        <div key={row} className="grid grid-cols-7 gap-1">
+        <div key={row} className="grid grid-cols-7 gap-0.5 sm:gap-1">
           {cells}
         </div>
       );
@@ -290,81 +326,107 @@ export default function StudentHistoryPage() {
 
   const isCurrentMonth = viewYear === new Date().getFullYear() && viewMonth === new Date().getMonth() + 1;
 
+  const historyTitleName = formatStudentDisplayName(student, "同学");
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-gray-800">历史学习记录</h1>
-        <Link href="/student">
-          <Button variant="secondary">返回学生端</Button>
+    <div className="space-y-6 sm:space-y-8 pb-10 sm:pb-12 max-w-3xl mx-auto w-full min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight leading-snug">
+            历史学习记录
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-600 mt-1.5 leading-relaxed break-words">
+            {historyTitleName}
+            <span className="text-gray-500"> · 打卡与批改</span>
+          </p>
+        </div>
+        <Link href="/student" className="shrink-0 w-full sm:w-auto">
+          <Button
+            variant="secondary"
+            className="w-full sm:w-auto min-h-12 sm:min-h-11 px-5 text-base font-semibold"
+          >
+            返回上传作业
+          </Button>
         </Link>
       </div>
 
       {/* ① 学习打卡日历（月视图） */}
-      <Card>
-        <CardHeader>
-          <CardTitle>打卡日历（按月视图）</CardTitle>
-          <CardDescription>
+      <Card className="shadow-sm border-teal-100/50 !p-4 sm:!p-6">
+        <CardHeader className="space-y-3 pb-2">
+          <CardTitle className="text-lg sm:text-xl leading-snug">打卡日历（按月视图）</CardTitle>
+          <CardDescription className="text-sm leading-relaxed">
             阅读完成（蓝「阅」）以 reading_days 为准；日记（黄「记」）以教师标注的 diary_days 为准（可多日，未标注不计入）；两者都有为绿底；「评」表示该日关联日记有教师反馈。
           </CardDescription>
-          <div className="flex flex-wrap gap-3 text-xs text-gray-600">
-            <span className="inline-flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-sky-200 border border-sky-400" /> 阅读完成
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-3 text-xs sm:text-sm text-gray-600">
+            <span className="inline-flex items-center gap-1.5 min-h-8">
+              <span className="w-3 h-3 shrink-0 rounded bg-sky-200 border border-sky-400" />{" "}
+              阅读完成
             </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-amber-200 border border-amber-400" /> 日记完成
+            <span className="inline-flex items-center gap-1.5 min-h-8">
+              <span className="w-3 h-3 shrink-0 rounded bg-amber-200 border border-amber-400" />{" "}
+              日记完成
             </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-emerald-200 border border-emerald-400" /> 都完成
+            <span className="inline-flex items-center gap-1.5 min-h-8">
+              <span className="w-3 h-3 shrink-0 rounded bg-emerald-200 border border-emerald-400" />{" "}
+              都完成
             </span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (viewMonth === 1) {
-                  setViewYear((y) => y - 1);
-                  setViewMonth(12);
-                } else {
-                  setViewMonth((m) => m - 1);
-                }
-              }}
-            >
-              上个月
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (viewMonth === 12) {
-                  setViewYear((y) => y + 1);
-                  setViewMonth(1);
-                } else {
-                  setViewMonth((m) => m + 1);
-                }
-              }}
-            >
-              下个月
-            </Button>
-            {!isCurrentMonth && (
+        <CardContent className="space-y-4 sm:space-y-5 pt-2 pb-1 sm:pb-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <Button
                 variant="secondary"
+                className="min-h-11 flex-1 sm:flex-none text-sm sm:text-base"
                 onClick={() => {
-                  const now = new Date();
-                  setViewYear(now.getFullYear());
-                  setViewMonth(now.getMonth() + 1);
+                  if (viewMonth === 1) {
+                    setViewYear((y) => y - 1);
+                    setViewMonth(12);
+                  } else {
+                    setViewMonth((m) => m - 1);
+                  }
                 }}
               >
-                回到本月
+                上个月
               </Button>
-            )}
-            <span className="text-gray-600 font-medium ml-2">
+              <Button
+                variant="secondary"
+                className="min-h-11 flex-1 sm:flex-none text-sm sm:text-base"
+                onClick={() => {
+                  if (viewMonth === 12) {
+                    setViewYear((y) => y + 1);
+                    setViewMonth(1);
+                  } else {
+                    setViewMonth((m) => m + 1);
+                  }
+                }}
+              >
+                下个月
+              </Button>
+              {!isCurrentMonth && (
+                <Button
+                  variant="secondary"
+                  className="min-h-11 w-full sm:w-auto text-sm sm:text-base"
+                  onClick={() => {
+                    const now = new Date();
+                    setViewYear(now.getFullYear());
+                    setViewMonth(now.getMonth() + 1);
+                  }}
+                >
+                  回到本月
+                </Button>
+              )}
+            </div>
+            <p className="text-center sm:text-left text-base font-semibold text-gray-800 w-full sm:w-auto sm:ml-1">
               {viewYear}年{viewMonth}月
-            </span>
+            </p>
           </div>
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
             {WEEKDAY_LABELS.map((l) => (
-              <div key={l} className="text-center text-xs font-medium text-gray-500 py-1">
+              <div
+                key={l}
+                className="text-center text-[10px] sm:text-xs font-medium text-gray-500 py-0.5 sm:py-1"
+              >
                 {l}
               </div>
             ))}
@@ -412,7 +474,11 @@ export default function StudentHistoryPage() {
                     )}
                   </div>
                 </div>
-                <Button variant="secondary" className="mt-4 w-full" onClick={() => setSelectedDayPanel(null)}>
+                <Button
+                  variant="secondary"
+                  className="mt-5 w-full min-h-12 text-base"
+                  onClick={() => setSelectedDayPanel(null)}
+                >
                   关闭
                 </Button>
               </div>
@@ -422,33 +488,37 @@ export default function StudentHistoryPage() {
       </Card>
 
       {/* ② 日记批改反馈（可查看历史） */}
-      <Card>
-        <CardHeader>
-          <CardTitle>日记批改反馈（可查看历史）</CardTitle>
-          <CardDescription>按日期倒序，可筛选月份和日</CardDescription>
+      <Card className="shadow-sm border-teal-100/50 !p-4 sm:!p-6">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base sm:text-xl leading-snug">
+            日记批改反馈（可查看历史）
+          </CardTitle>
+          <CardDescription className="text-sm leading-relaxed">
+            按日期倒序，可筛选月份和日
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">月份</label>
+        <CardContent className="space-y-5 pb-1 sm:pb-2">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-5">
+            <div className="min-w-0 flex-1 sm:flex-initial">
+              <label className="block text-sm font-medium text-gray-700 mb-2">月份</label>
               <Input
                 type="month"
                 value={monthFilter}
                 onChange={(e) => setMonthFilter(e.target.value)}
-                className="w-36"
+                className="w-full sm:w-44 min-h-11 text-base"
               />
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">日</label>
+            <div className="min-w-0 flex-1 sm:flex-initial">
+              <label className="block text-sm font-medium text-gray-700 mb-2">日</label>
               <Input
                 type="text"
                 inputMode="numeric"
                 value={dayInput}
                 onChange={(e) => setDayInput(e.target.value.replace(/\D/g, "").slice(0, 2))}
                 placeholder="输入日（如：22）"
-                className="w-24"
+                className="w-full sm:w-28 min-h-11 text-base"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm text-gray-500 mt-2 leading-relaxed">
                 月份已在上方选择，这里只需要填日期的「日」
               </p>
             </div>
@@ -467,7 +537,7 @@ export default function StudentHistoryPage() {
                   key={r.id}
                   className="pb-6 border-b border-[var(--card-border)] last:border-0 last:pb-0"
                 >
-                  <p className="text-sm font-medium text-gray-700 mb-2">
+                  <p className="text-base font-medium text-gray-800 mb-2 leading-snug">
                     完成日（统计，可多日）：
                     {(() => {
                       const days = normalizeDiaryDaysArray(r);
@@ -484,7 +554,7 @@ export default function StudentHistoryPage() {
                         <img
                           src={getPublicUrl("diary-images", r.image_path)}
                           alt="日记"
-                          className="max-w-[200px] max-h-[160px] object-contain rounded-2xl border border-teal-200 hover:border-teal-400 transition"
+                          className="w-full max-w-[min(100%,240px)] max-h-[200px] sm:max-w-[200px] sm:max-h-[160px] object-contain rounded-2xl border border-teal-200 hover:border-teal-400 transition"
                         />
                       </button>
                     ) : (
@@ -493,7 +563,7 @@ export default function StudentHistoryPage() {
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-700">教师评语：</span>
-                    <p className="text-sm text-gray-800 mt-1 whitespace-pre-wrap">
+                    <p className="text-base text-gray-800 mt-2 whitespace-pre-wrap leading-relaxed">
                       {(r.teacher_feedback || "").trim() || "暂无教师反馈"}
                     </p>
                   </div>
