@@ -19,6 +19,7 @@ import { getAndClearPendingDisplayName } from "@/lib/pendingDisplayName";
 import { formatStudentDisplayName } from "@/lib/studentDisplayName";
 import { emitStudentRecordsUpdated } from "@/lib/studentRecordsEvents";
 import { uploadDiaryImage, uploadReadingImage } from "@/lib/storage";
+import { compressImageForUpload } from "@/lib/clientImageCompress";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -46,6 +47,9 @@ export default function StudentPage() {
   const [readingSuccess, setReadingSuccess] = useState(null);
   const [diarySaving, setDiarySaving] = useState(false);
   const [readingSaving, setReadingSaving] = useState(false);
+  /** 弱网优化：压缩 / 上传阶段提示（移动端可读） */
+  const [diaryPhaseMessage, setDiaryPhaseMessage] = useState("");
+  const [readingPhaseMessage, setReadingPhaseMessage] = useState("");
 
   const [diaryItems, setDiaryItems] = useState([]);
   const [readingItems, setReadingItems] = useState([]);
@@ -211,8 +215,14 @@ export default function StudentPage() {
       await refreshStudentAfterUpload();
     } catch (err) {
       if (isBucketMissingError(err)) setShowBucketBanner(true);
-      else setUploadError(err?.message || "上传失败，请重试");
+      else
+        setUploadError(
+          err?.message
+            ? `上传未成功：${err.message}。请检查网络后重试。`
+            : "上传未成功，请检查网络后重试。"
+        );
     } finally {
+      setDiaryPhaseMessage("");
       setDiarySaving(false);
     }
   }
@@ -227,9 +237,12 @@ export default function StudentPage() {
     const recognizedDaysInBatch = new Set();
     try {
       for (let i = 0; i < items.length; i++) {
-        const path = await uploadReadingImage(student.id, items[i].file, i);
+        setReadingPhaseMessage("正在优化图片，请稍候…");
+        const fileToUpload = await compressImageForUpload(items[i].file);
+        setReadingPhaseMessage("上传中，请稍候…");
+        const path = await uploadReadingImage(student.id, fileToUpload, i);
         const formData = new FormData();
-        formData.append("image", items[i].file);
+        formData.append("image", fileToUpload);
         let extraction = {
           total_words: null,
           total_time_minutes: null,
@@ -317,6 +330,7 @@ export default function StudentPage() {
           throw persistErr;
         }
       }
+      setReadingPhaseMessage("");
       setReadingSuccess({
         photos: items.length,
         daysRecognized: recognizedDaysInBatch.size,
@@ -326,8 +340,14 @@ export default function StudentPage() {
       await refreshStudentAfterUpload();
     } catch (err) {
       if (isBucketMissingError(err)) setShowBucketBanner(true);
-      else setUploadError(err?.message || "上传失败，请重试");
+      else
+        setUploadError(
+          err?.message
+            ? `上传未成功：${err.message}。请检查网络后重试。`
+            : "上传未成功，请检查网络后重试。"
+        );
     } finally {
+      setReadingPhaseMessage("");
       setReadingSaving(false);
     }
   }
@@ -373,6 +393,24 @@ export default function StudentPage() {
     <div className="space-y-6 sm:space-y-10 pb-8 sm:pb-10 max-w-lg mx-auto w-full min-w-0">
       {showBucketBanner && <Alert variant="warning">{BUCKET_BANNER_ZH}</Alert>}
       {uploadError && <Alert variant="error">{uploadError}</Alert>}
+      {diarySaving && diaryPhaseMessage && (
+        <p
+          className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-center text-sm font-medium text-teal-900"
+          role="status"
+          aria-live="polite"
+        >
+          {diaryPhaseMessage}
+        </p>
+      )}
+      {readingSaving && readingPhaseMessage && (
+        <p
+          className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-center text-sm font-medium text-teal-900"
+          role="status"
+          aria-live="polite"
+        >
+          {readingPhaseMessage}
+        </p>
+      )}
 
       <div className="rounded-2xl border border-teal-100/80 bg-white/90 px-4 py-3.5 sm:px-5 sm:py-5 shadow-sm">
         <p className="text-lg sm:text-xl font-semibold text-gray-900 leading-snug break-words">
@@ -450,7 +488,7 @@ export default function StudentPage() {
                   disabled={readingSaving}
                   className="w-full min-h-12 text-base font-semibold rounded-xl"
                 >
-                  {readingSaving ? "上传中…" : "开始上传阅读记录"}
+                  {readingSaving ? "上传中，请稍候…" : "开始上传阅读记录"}
                 </Button>
               </>
             )}
@@ -460,7 +498,7 @@ export default function StudentPage() {
                 role="status"
                 aria-live="polite"
               >
-                <p className="text-base font-bold text-emerald-900">阅读记录上传成功</p>
+                <p className="text-base font-bold text-emerald-900">上传成功</p>
                 <p className="text-sm text-emerald-900/90 leading-relaxed">
                   已成功保存 {readingSuccess.photos} 张照片到系统。
                 </p>
@@ -542,7 +580,7 @@ export default function StudentPage() {
                   disabled={diarySaving}
                   className="w-full min-h-12 text-base font-semibold rounded-xl"
                 >
-                  {diarySaving ? "上传中…" : "开始上传英语日记"}
+                  {diarySaving ? "上传中，请稍候…" : "开始上传英语日记"}
                 </Button>
               </>
             )}
@@ -552,7 +590,7 @@ export default function StudentPage() {
                 role="status"
                 aria-live="polite"
               >
-                <p className="text-base font-bold text-emerald-900">英语日记上传成功</p>
+                <p className="text-base font-bold text-emerald-900">上传成功</p>
                 <p className="text-sm text-emerald-900/90 leading-relaxed">
                   已成功上传 {diarySuccess.photos} 张照片。老师批改后，在「历史学习记录」中查看。
                 </p>
