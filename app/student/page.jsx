@@ -374,13 +374,13 @@ export default function StudentPage() {
       {showBucketBanner && <Alert variant="warning">{BUCKET_BANNER_ZH}</Alert>}
       {uploadError && <Alert variant="error">{uploadError}</Alert>}
 
-      <div className="rounded-2xl border border-teal-100/80 bg-white/90 px-4 py-4 sm:px-5 sm:py-5 shadow-sm">
+      <div className="rounded-2xl border border-teal-100/80 bg-white/90 px-4 py-3.5 sm:px-5 sm:py-5 shadow-sm">
         <p className="text-lg sm:text-xl font-semibold text-gray-900 leading-snug break-words">
           你好，
           <span className="block sm:inline sm:ml-1">{displayName}</span>
         </p>
-        <p className="text-xs sm:text-sm text-gray-600 mt-2 leading-relaxed">
-          阅读记录在上、日记在下。顶部可切换到「历史学习记录」查看打卡与批改。
+        <p className="text-xs sm:text-sm text-gray-600 mt-1.5 leading-relaxed">
+          先传阅读记录，再传英语日记。
         </p>
       </div>
 
@@ -554,17 +554,13 @@ export default function StudentPage() {
               >
                 <p className="text-base font-bold text-emerald-900">英语日记上传成功</p>
                 <p className="text-sm text-emerald-900/90 leading-relaxed">
-                  已成功上传 {diarySuccess.photos} 张照片。老师批改后，你可以在「历史学习记录」里查看反馈。
+                  已成功上传 {diarySuccess.photos} 张照片。老师批改后，在「历史学习记录」中查看。
                 </p>
               </div>
             )}
           </div>
         </Card>
       </div>
-
-      <p className="text-center text-xs text-gray-500 leading-relaxed px-1 pt-1">
-        查看打卡日历与日记批改：点顶部「历史学习记录」分段按钮即可。
-      </p>
 
       {/* Preview modal */}
       {previewModal && previewModalItems?.length > 0 && (

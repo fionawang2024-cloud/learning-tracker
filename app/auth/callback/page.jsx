@@ -43,7 +43,8 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      router.replace("/");
+      /* 无身份标记时默认进学生端（与纯学生首页跳转一致） */
+      router.replace("/student");
     }
 
     (async () => {
