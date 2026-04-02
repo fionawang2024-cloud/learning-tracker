@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { consumeLoginIntent, LOGIN_INTENT_STUDENT, LOGIN_INTENT_TEACHER } from "@/lib/loginIntent";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
+import { routeAfterAuthSession } from "@/lib/postAuthRouting";
 
 /**
  * Magic-link landing: exchange session, then redirect by login intent (student vs teacher).
@@ -39,12 +40,12 @@ export default function AuthCallbackPage() {
       }
 
       if (intent === LOGIN_INTENT_STUDENT) {
-        router.replace("/student");
+        await routeAfterAuthSession(session.user, router);
         return;
       }
 
-      /* 无身份标记时默认进学生端（与纯学生首页跳转一致） */
-      router.replace("/student");
+      /* 无身份标记：按学生侧规则分流（含首次补全姓名） */
+      await routeAfterAuthSession(session.user, router);
     }
 
     (async () => {

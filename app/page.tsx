@@ -7,6 +7,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { hasDevTeacherAccess } from "@/lib/devMode";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
+import { routeAfterAuthSession } from "@/lib/postAuthRouting";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 
@@ -41,10 +42,10 @@ export default function Home() {
     });
   }, [user]);
 
-  /** 纯学生账号不经过「首页」，直接进入学生端 */
+  /** 纯学生账号不经过「首页」：进学生端或首次补全姓名 */
   useEffect(() => {
     if (!sessionResolved || !user || showTeacherEntry) return;
-    router.replace("/student");
+    routeAfterAuthSession(user, router);
   }, [sessionResolved, user, showTeacherEntry, router]);
 
   if (loading || (user && !sessionResolved)) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import {
   getOrCreateStudent,
@@ -16,6 +17,7 @@ import {
   normalizeReadingDaysArray,
 } from "@/lib/readingRecordOcr";
 import { getAndClearPendingDisplayName } from "@/lib/pendingDisplayName";
+import { studentNeedsDisplayNameSetup } from "@/lib/studentProfileSetup";
 import { formatStudentDisplayName } from "@/lib/studentDisplayName";
 import { emitStudentRecordsUpdated } from "@/lib/studentRecordsEvents";
 import { uploadDiaryImage, uploadReadingImage } from "@/lib/storage";
@@ -38,6 +40,7 @@ function isBucketMissingError(error) {
 }
 
 export default function StudentPage() {
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -87,13 +90,19 @@ export default function StudentPage() {
         return;
       }
       s = await ensureStudentDisplayNameIfEmpty(s, u, getAndClearPendingDisplayName);
-      if (!cancelled) setStudent(s);
+      if (cancelled) return;
+      if (studentNeedsDisplayNameSetup(u.email, s.display_name)) {
+        router.replace("/login/finish-student-profile");
+        setLoading(false);
+        return;
+      }
+      setStudent(s);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!diarySuccess) return;

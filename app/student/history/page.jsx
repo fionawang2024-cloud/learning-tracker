@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getOrCreateStudent, listDiaryByStudent, listReadingByStudent } from "@/lib/db";
 import { normalizeReadingDaysArray } from "@/lib/readingRecordOcr";
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 import { STUDENT_RECORDS_UPDATED_EVENT } from "@/lib/studentRecordsEvents";
 import { formatStudentDisplayName } from "@/lib/studentDisplayName";
+import { studentNeedsDisplayNameSetup } from "@/lib/studentProfileSetup";
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -61,6 +63,7 @@ function getMondayBasedWeekday(date) {
 }
 
 export default function StudentHistoryPage() {
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -182,6 +185,11 @@ export default function StudentHistoryPage() {
         setLoading(false);
         return;
       }
+      if (studentNeedsDisplayNameSetup(u.email, s.display_name)) {
+        router.replace("/login/finish-student-profile");
+        setLoading(false);
+        return;
+      }
       setStudent(s);
       const [diary, reading] = await Promise.all([
         listDiaryByStudent(s.id),
@@ -202,7 +210,7 @@ export default function StudentHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [semesterStart, todayKey]);
+  }, [semesterStart, todayKey, router]);
 
   useEffect(() => {
     if (!student?.id) return undefined;

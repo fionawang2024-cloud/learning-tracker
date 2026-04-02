@@ -1,24 +1,43 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, Suspense, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { setPendingDisplayName } from "@/lib/pendingDisplayName";
 import { setLoginIntent, LOGIN_INTENT_STUDENT, LOGIN_INTENT_TEACHER } from "@/lib/loginIntent";
+import { routeAfterAuthSession } from "@/lib/postAuthRouting";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 
 function LoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const noTeacherReason = searchParams.get("reason") === "no_teacher";
 
   const [role, setRole] = useState("student");
   const [email, setEmail] = useState("");
-  const [studentName, setStudentName] = useState("");
   const [message, setMessage] = useState({ type: null, text: "" });
   const [loading, setLoading] = useState(false);
+  const [sessionBoot, setSessionBoot] = useState(true);
+
+  /** 已有有效会话：直接进入学生端 / 教师端 / 首次补全姓名，不再展示登录表 */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session?.user) {
+        await routeAfterAuthSession(session.user, router);
+      }
+      if (!cancelled) setSessionBoot(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSendEmail(e) {
     e.preventDefault();
@@ -27,13 +46,6 @@ function LoginForm() {
     try {
       const emailTrim = email.trim();
       if (role === "student") {
-        const nameTrim = studentName.trim();
-        if (!nameTrim) {
-          setMessage({ type: "error", text: "请填写学生姓名（显示名）。" });
-          setLoading(false);
-          return;
-        }
-        setPendingDisplayName(emailTrim, nameTrim);
         setLoginIntent(LOGIN_INTENT_STUDENT);
       } else {
         setLoginIntent(LOGIN_INTENT_TEACHER);
@@ -63,6 +75,12 @@ function LoginForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (sessionBoot) {
+    return (
+      <div className="max-w-md mx-auto py-16 text-center text-gray-500 text-sm">加载中…</div>
+    );
   }
 
   return (
@@ -129,24 +147,12 @@ function LoginForm() {
               />
             </div>
             {role === "student" && (
-              <div>
-                <label
-                  htmlFor="studentName"
-                  className="block text-sm font-medium text-gray-700 mb-2"
-                >
-                  学生姓名（显示名）<span className="text-red-500">*</span>
-                </label>
-                <Input
-                  id="studentName"
-                  type="text"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  placeholder="请输入姓名，将保存为显示名"
-                  required
-                  disabled={loading}
-                  autoComplete="name"
-                />
-              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                学生登录只需邮箱验证。
+                <span className="block mt-1 text-xs text-gray-500">
+                  首次登录验证成功后，将单独引导您填写一次学生显示名并写入系统；之后再次登录无需重复填写。
+                </span>
+              </p>
             )}
             {role === "teacher" && (
               <p className="text-sm text-gray-600 leading-relaxed">
