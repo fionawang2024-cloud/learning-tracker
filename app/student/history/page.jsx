@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { getOrCreateStudent, listDiaryByStudent, listReadingByStudent } from "@/lib/db";
 import { normalizeReadingDaysArray } from "@/lib/readingRecordOcr";
 import { getPublicUrl } from "@/lib/storage";
@@ -174,7 +174,7 @@ export default function StudentHistoryPage() {
     (async () => {
       const {
         data: { user: u },
-      } = await supabase.auth.getUser();
+      } = await getSupabaseClient().auth.getUser();
       if (cancelled || !u) {
         setLoading(false);
         return;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { isDevModeActive, getDevView, setDevView, hasDevTeacherAccess } from "@/lib/devMode";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { Button } from "@/components/ui/Button";
@@ -23,7 +23,7 @@ export default function Navbar() {
   const logoHref = onStudentArea || (user && !showTeacherLink) ? "/student" : "/";
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user: u } }) => {
+    getSupabaseClient().auth.getUser().then(({ data: { user: u } }) => {
       setUser(u ?? null);
       setLoading(false);
     });
@@ -49,7 +49,7 @@ export default function Navbar() {
   }, [pathname]);
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await getSupabaseClient().auth.signOut();
     window.location.reload();
   }
 

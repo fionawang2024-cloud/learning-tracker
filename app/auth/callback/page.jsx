@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { consumeLoginIntent, LOGIN_INTENT_STUDENT, LOGIN_INTENT_TEACHER } from "@/lib/loginIntent";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { routeAfterAuthSession } from "@/lib/postAuthRouting";
@@ -52,7 +52,7 @@ export default function AuthCallbackPage() {
       if (typeof window !== "undefined") {
         const code = new URL(window.location.href).searchParams.get("code");
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          const { error } = await getSupabaseClient().auth.exchangeCodeForSession(code);
           if (error) {
             if (!cancelled) setHint("登录链接无效或已过期，请返回登录页重试。");
             return;
@@ -62,7 +62,7 @@ export default function AuthCallbackPage() {
 
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await getSupabaseClient().auth.getSession();
       if (cancelled) return;
       if (session?.user) {
         await finish(session);
@@ -71,7 +71,7 @@ export default function AuthCallbackPage() {
 
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      } = getSupabaseClient().auth.onAuthStateChange((event, nextSession) => {
         if (event === "SIGNED_IN" && nextSession) {
           finish(nextSession);
         }

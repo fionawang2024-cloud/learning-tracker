@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { hasDevTeacherAccess } from "@/lib/devMode";
 import {
@@ -186,7 +186,7 @@ export default function TeacherStudentPage() {
     if (!id) return;
     (async () => {
       console.log("[teacher-student] initial load: getUser");
-      const { data: { user: u } } = await supabase.auth.getUser();
+      const { data: { user: u } } = await getSupabaseClient().auth.getUser();
       if (!u) {
         setLoading(false);
         return;

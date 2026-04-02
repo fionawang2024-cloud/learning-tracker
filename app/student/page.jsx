@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import {
   getOrCreateStudent,
   ensureStudentDisplayNameIfEmpty,
@@ -78,7 +78,7 @@ export default function StudentPage() {
     (async () => {
       const {
         data: { user: u },
-      } = await supabase.auth.getUser();
+      } = await getSupabaseClient().auth.getUser();
       if (cancelled || !u) {
         setLoading(false);
         return;

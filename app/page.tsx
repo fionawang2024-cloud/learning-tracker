@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import type { User, AuthResponse } from "@supabase/supabase-js";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { hasDevTeacherAccess } from "@/lib/devMode";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { routeAfterAuthSession } from "@/lib/postAuthRouting";
@@ -19,10 +19,12 @@ export default function Home() {
   const [sessionResolved, setSessionResolved] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user: u } }) => {
-      setUser(u ?? null);
-      setLoading(false);
-    });
+    getSupabaseClient()
+      .auth.getUser()
+      .then((res: AuthResponse) => {
+        setUser(res.data.user ?? null);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import { useState, Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { setLoginIntent, LOGIN_INTENT_STUDENT, LOGIN_INTENT_TEACHER } from "@/lib/loginIntent";
 import { routeAfterAuthSession } from "@/lib/postAuthRouting";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
@@ -27,7 +27,7 @@ function LoginForm() {
     (async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await getSupabaseClient().auth.getSession();
       if (cancelled) return;
       if (session?.user) {
         await routeAfterAuthSession(session.user, router);
@@ -55,7 +55,7 @@ function LoginForm() {
         typeof window !== "undefined" ? window.location.origin : "";
       const redirectTo = origin ? `${origin}/auth/callback` : undefined;
 
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await getSupabaseClient().auth.signInWithOtp({
         email: emailTrim,
         options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
       });

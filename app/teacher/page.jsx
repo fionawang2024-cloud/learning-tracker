@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { toPng } from "html-to-image";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { SEMESTER_START } from "@/lib/constants";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { formatTimeMinutes } from "@/lib/timeFormat";
@@ -214,7 +214,7 @@ export default function TeacherPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
+      const { data: { user: u } } = await getSupabaseClient().auth.getUser();
       if (!u) {
         setLoading(false);
         return;

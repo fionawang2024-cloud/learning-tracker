@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { getOrCreateStudent, updateStudentDisplayName } from "@/lib/db";
 import { fetchTeacherAuthorization } from "@/lib/teacherAuthClient";
 import { hasDevTeacherAccess } from "@/lib/devMode";
@@ -29,7 +29,7 @@ export default function FinishStudentProfilePage() {
     (async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await getSupabaseClient().auth.getSession();
       if (cancelled) return;
       const u = session?.user;
       if (!u) {
@@ -142,7 +142,7 @@ export default function FinishStudentProfilePage() {
             type="button"
             className="mt-3 text-sm text-teal-700 hover:underline"
             onClick={async () => {
-              await supabase.auth.signOut();
+              await getSupabaseClient().auth.signOut();
               router.replace("/login");
             }}
           >
