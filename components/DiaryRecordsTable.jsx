@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listAllDiaryRecordsForFeed, listStudents } from "@/lib/db";
 import { normalizeDiaryDaysArray } from "@/lib/diaryDate";
 import { addDaysYMD, localYMD, sundayOfWeekContaining, weekDatesSundayToSaturday } from "@/lib/dateRangeUtils";
@@ -28,6 +28,10 @@ function latestDiaryRowForStudent(diaries, studentId) {
 
 export default function DiaryRecordsTable({ refreshKey = 0 }) {
   const [students, setStudents] = useState([]);
+  const studentsRef = useRef([]);
+  useEffect(() => {
+    studentsRef.current = students;
+  }, [students]);
   const [diaries, setDiaries] = useState([]);
   /** @type {Record<string, string[]>} */
   const [editableByStudent, setEditableByStudent] = useState({});
@@ -54,7 +58,11 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
       setEditableByStudent(next);
     } catch (e) {
       console.error("DiaryRecordsTable load", e);
-      setSaveError(e?.message || "加载失败");
+      setSaveError(e?.message || "加载失败（已保留当前学生列表）");
+      // 保留当前页面的学生与日记状态，避免接口异常时清空 UI。
+      setStudents((prev) => prev);
+      setDiaries((prev) => prev);
+      setEditableByStudent((prev) => prev);
     }
   }, []);
 
