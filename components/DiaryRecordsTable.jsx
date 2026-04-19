@@ -61,17 +61,28 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
       });
       const allowed = new Set(roster.map((x) => x.id));
       setDiaryStudents((prev) => {
-        const prevNames = (prev || []).map((x) => x.display_name || x.name || "");
-        console.log("[diary] before setDiaryStudents -> 当前列表姓名", prevNames);
         let next = roster;
-        if (preserveStudent?.id && !roster.some((x) => x.id === preserveStudent.id)) {
-          // 避免“添加后瞬间刷新”用旧查询结果把新学生覆盖掉。
-          next = [...roster, preserveStudent].sort((a, b) =>
+        const prevNames = (prev || []).map((x) => x.display_name || x.name || "");
+        if (reason === "add_student") {
+          const byId = new Map();
+          for (const row of prev || []) byId.set(row?.id, row);
+          for (const row of roster || []) byId.set(row?.id, row);
+          next = Array.from(byId.values()).sort((a, b) =>
             String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
           );
         }
+        if (preserveStudent?.id && !roster.some((x) => x.id === preserveStudent.id)) {
+          // 避免“添加后瞬间刷新”用旧查询结果把新学生覆盖掉。
+          const byId = new Map();
+          for (const row of next || []) byId.set(row?.id, row);
+          byId.set(preserveStudent.id, preserveStudent);
+          next = Array.from(byId.values()).sort((a, b) =>
+            String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
+          );
+        }
+        console.log("[diary] before add names", prevNames);
         const nextNames = (next || []).map((x) => x.display_name || x.name || "");
-        console.log("[diary] after setDiaryStudents -> 新列表姓名", nextNames);
+        console.log("[diary] after add names", nextNames);
         return next;
       });
       setDiaries((d || []).filter((row) => allowed.has(row.student_id)));
@@ -162,6 +173,10 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
       "[diary] render source names",
       renderedDiaryRows.map((x) => x.name)
     );
+    console.log(
+      "[diary] final render names",
+      renderedDiaryRows.map((x) => x.name)
+    );
   }, [renderedDiaryRows]);
 
   const weekRangeLabel =
@@ -190,14 +205,19 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
         <AddStudentBar
           variant="diary"
           onAdded={async (student) => {
-            console.log("[diary] addStudent success", {
+            console.log("[diary] newStudent", {
+              id: student?.id,
+              name: student?.display_name || student?.name || "",
+              semester_id: student?.semester_id ?? null,
+            });
+            console.log("[diary] addStudent success -> newStudent", {
               id: student?.id,
               name: student?.display_name || student?.name || "",
               semester_id: student?.semester_id ?? null,
             });
             setDiaryStudents((prev) => {
               const before = (prev || []).map((x) => x.display_name || x.name || "");
-              console.log("[diary] before setDiaryStudents -> 当前列表姓名", before);
+              console.log("[diary] before add names", before);
               const sid = student?.id;
               if (!sid) return prev;
               if (prev.some((x) => x.id === sid)) return prev;
@@ -205,7 +225,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
                 String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
               );
               const after = appended.map((x) => x.display_name || x.name || "");
-              console.log("[diary] after setDiaryStudents -> 新列表姓名", after);
+              console.log("[diary] after add names", after);
               return appended;
             });
             setEditableByStudent((prev) => ({
