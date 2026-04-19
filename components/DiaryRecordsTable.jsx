@@ -38,7 +38,14 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
   const [diaryWeekSunday, setDiaryWeekSunday] = useState(() => sundayOfWeekContaining(localYMD()));
   const diaryWeekDates = useMemo(() => weekDatesSundayToSaturday(diaryWeekSunday), [diaryWeekSunday]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts = {}) => {
+    const reason = opts.reason || "unknown";
+    const preserveStudent = opts.preserveStudent || null;
+    console.log("[diary] refreshData called", {
+      reason,
+      preserveStudentId: preserveStudent?.id ?? null,
+      preserveStudentName: preserveStudent?.display_name || preserveStudent?.name || "",
+    });
     setSaveError("");
     try {
       const sem = await ensureCurrentSemester();
@@ -46,18 +53,35 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
       console.log("[diary] reload students start", { currentSemesterId });
       const [s, d] = await Promise.all([listStudents(), listAllDiaryRecordsForFeed()]);
       const roster = s || [];
+      console.log("[diary] refreshData result names", roster.map((x) => x.display_name || x.name || ""));
       console.log("[diary] reload students result", {
         currentSemesterId,
         studentsCount: roster.length,
         studentNames: roster.map((x) => x.display_name || x.name || ""),
       });
       const allowed = new Set(roster.map((x) => x.id));
-      setDiaryStudents(roster);
+      setDiaryStudents((prev) => {
+        const prevNames = (prev || []).map((x) => x.display_name || x.name || "");
+        console.log("[diary] before setDiaryStudents -> 当前列表姓名", prevNames);
+        let next = roster;
+        if (preserveStudent?.id && !roster.some((x) => x.id === preserveStudent.id)) {
+          // 避免“添加后瞬间刷新”用旧查询结果把新学生覆盖掉。
+          next = [...roster, preserveStudent].sort((a, b) =>
+            String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
+          );
+        }
+        const nextNames = (next || []).map((x) => x.display_name || x.name || "");
+        console.log("[diary] after setDiaryStudents -> 新列表姓名", nextNames);
+        return next;
+      });
       setDiaries((d || []).filter((row) => allowed.has(row.student_id)));
       const next = {};
       for (const st of s || []) {
         const row = latestDiaryRowForStudent(d || [], st.id);
         next[st.id] = row ? normalizeDiaryDaysArray(row) : [];
+      }
+      if (preserveStudent?.id && !Object.prototype.hasOwnProperty.call(next, preserveStudent.id)) {
+        next[preserveStudent.id] = [];
       }
       setEditableByStudent(next);
     } catch (e) {
@@ -71,7 +95,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
   }, []);
 
   useEffect(() => {
-    void load();
+    void load({ reason: "effect_load" });
   }, [load, refreshKey, diaryWeekSunday]);
 
   function toggleDay(studentId, ymd) {
@@ -100,7 +124,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
         throw new Error(body?.error || `HTTP ${res.status}`);
       }
       setHint("已保存");
-      await load();
+      await load({ reason: "save_row" });
     } catch (e) {
       console.error(e);
       setSaveError(e?.message || "保存失败");
@@ -172,18 +196,23 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
               semester_id: student?.semester_id ?? null,
             });
             setDiaryStudents((prev) => {
+              const before = (prev || []).map((x) => x.display_name || x.name || "");
+              console.log("[diary] before setDiaryStudents -> 当前列表姓名", before);
               const sid = student?.id;
               if (!sid) return prev;
               if (prev.some((x) => x.id === sid)) return prev;
-              return [...prev, student].sort((a, b) =>
+              const appended = [...prev, student].sort((a, b) =>
                 String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
               );
+              const after = appended.map((x) => x.display_name || x.name || "");
+              console.log("[diary] after setDiaryStudents -> 新列表姓名", after);
+              return appended;
             });
             setEditableByStudent((prev) => ({
               ...prev,
               [student?.id]: prev[student?.id] || [],
             }));
-            await load();
+            await load({ reason: "add_student", preserveStudent: student });
           }}
         />
       </CardHeader>
