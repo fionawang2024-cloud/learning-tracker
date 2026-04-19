@@ -20,10 +20,16 @@ export default function AddStudentBar({ onAdded, variant = "diary" }) {
     setBusy(true);
     try {
       const { student, created } = await createStudentIfNotExists(name);
+      console.log("[add-student] create result", {
+        created,
+        id: student?.id,
+        name: student?.display_name || student?.name || "",
+        semester_id: student?.semester_id ?? null,
+      });
       setName("");
       if (created) setHint("添加成功");
       else setHint("该学生已存在");
-      onAdded?.(student);
+      await onAdded?.(student);
     } catch (e) {
       setLocalErr(e instanceof Error ? e.message : String(e));
     } finally {

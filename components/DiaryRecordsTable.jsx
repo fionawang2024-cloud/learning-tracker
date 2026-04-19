@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listAllDiaryRecordsForFeed, listStudents } from "@/lib/db";
+import { ensureCurrentSemester, listAllDiaryRecordsForFeed, listStudents } from "@/lib/db";
 import { normalizeDiaryDaysArray } from "@/lib/diaryDate";
 import { addDaysYMD, localYMD, sundayOfWeekContaining, weekDatesSundayToSaturday } from "@/lib/dateRangeUtils";
 import { WEEKDAY_HEADERS_CN } from "@/lib/teacherReadingCalendar";
@@ -45,8 +45,16 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
   const load = useCallback(async () => {
     setSaveError("");
     try {
+      const sem = await ensureCurrentSemester();
+      const currentSemesterId = sem?.id ?? null;
+      console.log("[diary] reload students start", { currentSemesterId });
       const [s, d] = await Promise.all([listStudents(), listAllDiaryRecordsForFeed()]);
       const roster = s || [];
+      console.log("[diary] reload students result", {
+        currentSemesterId,
+        studentsCount: roster.length,
+        studentNames: roster.map((x) => x.display_name || x.name || ""),
+      });
       const allowed = new Set(roster.map((x) => x.id));
       setStudents(roster);
       setDiaries((d || []).filter((row) => allowed.has(row.student_id)));
@@ -139,7 +147,17 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
             </Button>
           </div>
         </div>
-        <AddStudentBar variant="diary" onAdded={() => void load()} />
+        <AddStudentBar
+          variant="diary"
+          onAdded={async (student) => {
+            console.log("[diary] onAdded received student", {
+              id: student?.id,
+              name: student?.display_name || student?.name || "",
+              semester_id: student?.semester_id ?? null,
+            });
+            await load();
+          }}
+        />
       </CardHeader>
       <CardContent className="space-y-3">
         {saveError && <p className="text-sm text-red-600">{saveError}</p>}
