@@ -564,10 +564,12 @@ export default function ReadingRecordSection({ onSaved }) {
     let totalBooks;
     let totalReadingDays;
     let totalTimeMinutes;
+    let weeklyNewWords;
     try {
       totalWords = parseOptionalNonNegIntField(draft.editableTotalWords, "总单词数");
       totalBooks = parseOptionalNonNegIntField(draft.editableTotalBooks, "总本数");
       totalReadingDays = parseOptionalNonNegIntField(draft.editableTotalReadingDays, "连续阅读天数");
+      weeklyNewWords = parseOptionalNonNegIntField(draft.editableWeekWords, "本周新单词");
       const hRaw = String(draft.editableHours ?? "").trim();
       const mRaw = String(draft.editableMinutes ?? "").trim();
       if (hRaw === "" && mRaw === "") {
