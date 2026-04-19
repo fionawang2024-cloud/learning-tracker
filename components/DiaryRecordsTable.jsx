@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ensureCurrentSemester, listAllDiaryRecordsForFeed, listStudents } from "@/lib/db";
 import { normalizeDiaryDaysArray } from "@/lib/diaryDate";
 import { addDaysYMD, localYMD, sundayOfWeekContaining, weekDatesSundayToSaturday } from "@/lib/dateRangeUtils";
@@ -27,11 +27,7 @@ function latestDiaryRowForStudent(diaries, studentId) {
 }
 
 export default function DiaryRecordsTable({ refreshKey = 0 }) {
-  const [students, setStudents] = useState([]);
-  const studentsRef = useRef([]);
-  useEffect(() => {
-    studentsRef.current = students;
-  }, [students]);
+  const [diaryStudents, setDiaryStudents] = useState([]);
   const [diaries, setDiaries] = useState([]);
   /** @type {Record<string, string[]>} */
   const [editableByStudent, setEditableByStudent] = useState({});
@@ -56,7 +52,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
         studentNames: roster.map((x) => x.display_name || x.name || ""),
       });
       const allowed = new Set(roster.map((x) => x.id));
-      setStudents(roster);
+      setDiaryStudents(roster);
       setDiaries((d || []).filter((row) => allowed.has(row.student_id)));
       const next = {};
       for (const st of s || []) {
@@ -68,7 +64,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
       console.error("DiaryRecordsTable load", e);
       setSaveError(e?.message || "加载失败（已保留当前学生列表）");
       // 保留当前页面的学生与日记状态，避免接口异常时清空 UI。
-      setStudents((prev) => prev);
+      setDiaryStudents((prev) => prev);
       setDiaries((prev) => prev);
       setEditableByStudent((prev) => prev);
     }
@@ -124,6 +120,26 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
     return m;
   }, [diaries]);
 
+  const renderedDiaryRows = useMemo(
+    () =>
+      (diaryStudents || []).map((s) => ({
+        id: s.id,
+        student: s,
+        name: s.display_name || s.name || "—",
+        latestUploadedAt: latestTimeByStudent.get(s.id) || null,
+        editableDiaryDays: editableByStudent[s.id] || [],
+      })),
+    [diaryStudents, latestTimeByStudent, editableByStudent, diaryWeekSunday]
+  );
+
+  useEffect(() => {
+    console.log("[diary] render source count", renderedDiaryRows.length);
+    console.log(
+      "[diary] render source names",
+      renderedDiaryRows.map((x) => x.name)
+    );
+  }, [renderedDiaryRows]);
+
   const weekRangeLabel =
     diaryWeekDates.length >= 7 ? `${diaryWeekDates[0]} ～ ${diaryWeekDates[6]}` : "—";
 
@@ -150,11 +166,23 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
         <AddStudentBar
           variant="diary"
           onAdded={async (student) => {
-            console.log("[diary] onAdded received student", {
+            console.log("[diary] addStudent success", {
               id: student?.id,
               name: student?.display_name || student?.name || "",
               semester_id: student?.semester_id ?? null,
             });
+            setDiaryStudents((prev) => {
+              const sid = student?.id;
+              if (!sid) return prev;
+              if (prev.some((x) => x.id === sid)) return prev;
+              return [...prev, student].sort((a, b) =>
+                String(a?.display_name || a?.name || "").localeCompare(String(b?.display_name || b?.name || ""), "zh-Hans-CN")
+              );
+            });
+            setEditableByStudent((prev) => ({
+              ...prev,
+              [student?.id]: prev[student?.id] || [],
+            }));
             await load();
           }}
         />
@@ -174,10 +202,11 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {students.map((s) => {
-                const days = editableByStudent[s.id] || [];
+              {renderedDiaryRows.map((row) => {
+                const s = row.student;
+                const days = row.editableDiaryDays || [];
                 const set = new Set(days);
-                const t = latestTimeByStudent.get(s.id);
+                const t = row.latestUploadedAt;
                 return (
                   <TableRow key={s.id}>
                     <TableCell className={`font-medium break-words ${DIARY_COL.name}`}>
@@ -233,7 +262,7 @@ export default function DiaryRecordsTable({ refreshKey = 0 }) {
             </TableBody>
           </Table>
         </div>
-        {students.length === 0 && (
+        {renderedDiaryRows.length === 0 && (
           <p className="text-sm text-gray-500">暂无学生，请点击上方「添加学生」，或通过阅读记录保存时自动创建。</p>
         )}
       </CardContent>
