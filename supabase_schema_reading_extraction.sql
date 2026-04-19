@@ -32,3 +32,9 @@ COMMENT ON COLUMN reading_records.total_reading_days IS 'Optional, from OCR if a
 COMMENT ON COLUMN reading_records.total_books IS 'Optional, cumulative books from OCR if available';
 COMMENT ON COLUMN reading_records.daily_records_json IS 'Array of { date, words, time_minutes, books? } parsed from the screenshot';
 COMMENT ON COLUMN reading_records.reading_days IS 'Array of YYYY-MM-DD dates (strings) corrected/confirmed by teacher';
+
+-- 老师确认的「本周新单词」（与 OCR 弹窗一致，按自然周日～周六从本图日表初算后可改）
+ALTER TABLE reading_records
+  ADD COLUMN IF NOT EXISTS weekly_new_words integer;
+
+COMMENT ON COLUMN reading_records.weekly_new_words IS 'Teacher-confirmed week new words (Sun–Sat week anchored on this image daily rows)';

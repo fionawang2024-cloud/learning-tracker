@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "谢村咏梅英文剧社英语学习系统",
-  description: "谢村咏梅英文剧社 · 学习记录",
+  title: "咏梅英文剧社",
+  description: "咏梅英文剧社 · 阅读、日记与统计",
 };
 
 export default function RootLayout({

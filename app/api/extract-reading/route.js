@@ -1,5 +1,7 @@
 import { deriveReadingDaysDescending } from "@/lib/readingRecordOcr";
 
+const LOG_PREFIX = "[extract-reading]";
+
 /**
  * POST /api/extract-reading
  * 改进版阅读截图识别管线（支持截图 + 拍照）：
@@ -30,6 +32,38 @@ import { deriveReadingDaysDescending } from "@/lib/readingRecordOcr";
  */
 
 const CUMULATIVE_SEARCH_WINDOW = 5;
+
+/** 姓名 token 不得包含的子串（业务词、ETP 等） */
+const NAME_FORBIDDEN_SUBSTRINGS = [
+  "累计",
+  "存折",
+  "日期",
+  "听读",
+  "时间",
+  "单词",
+  "本数",
+  "天数",
+  "连续",
+  "ETP",
+  "ETPII",
+  "ETPA",
+  "ETPU",
+  "天月",
+  "年月",
+  "同步",
+  "上传",
+  "阅读记录",
+];
+
+const CUMULATIVE_LABELS = [
+  "累计时间",
+  "累计单词",
+  "累计本数",
+  "连续天数",
+  "听读时间",
+  "听读本数",
+  "听读单词",
+];
 
 /**
  * 将中文时长转为分钟（忽略秒）：支持
@@ -89,6 +123,134 @@ function gatherNearby(labelIndex, windowSize, tokens) {
     if (tok) out.push({ idx, tok, distance: Math.abs(offset) });
   }
   return out;
+}
+
+function isChineseNameLength(tok) {
+  const s = String(tok || "").trim();
+  return /^[\u4e00-\u9fa5]{2,4}$/.test(s);
+}
+
+function looksLikeDateOrNumberToken(tok) {
+  const s = String(tok || "").trim();
+  if (/^\d+$/.test(s.replace(/,/g, ""))) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+  if (/^\d{4}[年/-]\d{1,2}[月/-]\d{1,2}/.test(s)) return true;
+  if (/^\d{1,2}[月/-]\d{1,2}/.test(s) && /\d/.test(s)) return true;
+  return false;
+}
+
+function isForbiddenNameToken(tok) {
+  const s = String(tok || "").trim();
+  if (!isChineseNameLength(s)) return true;
+  if (/[0-9A-Za-z]/.test(s)) return true;
+  if (/[时分秒]/.test(s)) return true;
+  if (looksLikeDateOrNumberToken(s)) return true;
+  for (const sub of NAME_FORBIDDEN_SUBSTRINGS) {
+    if (sub && s.includes(sub)) return true;
+  }
+  return false;
+}
+
+/** cumulative 相关标签在全文中的行下标 */
+function cumulativeAnchorIndices(tokens) {
+  const idx = [];
+  for (const label of CUMULATIVE_LABELS) {
+    let p = tokens.indexOf(label);
+    while (p !== -1) {
+      idx.push(p);
+      p = tokens.indexOf(label, p + 1);
+    }
+  }
+  return [...new Set(idx)].sort((a, b) => a - b);
+}
+
+function minDistanceToAnchors(lineIndex, anchors) {
+  if (!anchors.length) return 80;
+  return Math.min(...anchors.map((a) => Math.abs(lineIndex - a)));
+}
+
+/** 行首「姓名+累计/听读/ETP…」粘连时拆出前 2–4 个汉字 */
+function extractEmbeddedLeadingName(line) {
+  const s = String(line || "").trim();
+  const m = s.match(/^([\u4e00-\u9fa5]{2,4})(?=累计|听读|连续|ETP|日期|天月|年月)/);
+  return m ? m[1] : null;
+}
+
+/** 「姓名：」「学生：」等标签后的 2–4 汉字（整段 OCR 文本上匹配） */
+function extractByExplicitNameLabels(fullText) {
+  const out = [];
+  if (!fullText) return out;
+  const re = /(?:姓名|学生名|名字|学员|学生)[:：\s\u3000]*([\u4e00-\u9fa5]{2,4})/g;
+  let m;
+  while ((m = re.exec(fullText)) !== null) {
+    const w = m[1];
+    if (!isForbiddenNameToken(w)) {
+      out.push({ token: w, distance: -2, idx: 0, source: "regex_label" });
+    }
+  }
+  return out;
+}
+
+/**
+ * 从 OCR 文本推断学生姓名：优先 cumulative 标签附近，其次页眉区域；失败返回 ""。
+ */
+function extractStudentName(text) {
+  if (!text) return "";
+  const tokens = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!tokens.length) return "";
+
+  const anchors = cumulativeAnchorIndices(tokens);
+  const minAnchor = anchors.length ? Math.min(...anchors) : -1;
+  const NEAR = 15;
+  const candidates = [];
+
+  for (const c of extractByExplicitNameLabels(text)) {
+    candidates.push(c);
+  }
+
+  for (const a of anchors) {
+    gatherNearby(a, NEAR, tokens).forEach((item) => {
+      if (isForbiddenNameToken(item.tok)) return;
+      let dist = item.distance;
+      if (minAnchor >= 0 && item.idx < minAnchor) dist -= 0.35;
+      candidates.push({ token: item.tok, distance: dist, idx: item.idx, source: "cumulative_nearby" });
+    });
+  }
+
+  const headerLines = Math.min(40, tokens.length);
+  for (let i = 0; i < headerLines; i++) {
+    const tok = tokens[i];
+    if (!isForbiddenNameToken(tok)) {
+      const base = anchors.length ? minDistanceToAnchors(i, anchors) : 60 + i * 0.02;
+      candidates.push({ token: tok, distance: base + 0.2, idx: i, source: "header_scan" });
+    }
+    const embedded = extractEmbeddedLeadingName(tok);
+    if (embedded && !isForbiddenNameToken(embedded)) {
+      const base = anchors.length ? minDistanceToAnchors(i, anchors) : 0.5;
+      candidates.push({ token: embedded, distance: Math.max(0, base - 1), idx: i, source: "embedded_prefix" });
+    }
+    const parts = String(tok).split(/[\s\u3000，,、]+/).filter(Boolean);
+    for (const part of parts) {
+      if (part === tok) continue;
+      if (!isForbiddenNameToken(part)) {
+        const base = anchors.length ? minDistanceToAnchors(i, anchors) : 60 + i * 0.02;
+        candidates.push({ token: part, distance: base + 0.25, idx: i, source: "line_split" });
+      }
+    }
+  }
+
+  const bestByToken = new Map();
+  for (const c of candidates) {
+    const prev = bestByToken.get(c.token);
+    if (!prev || c.distance < prev.distance) bestByToken.set(c.token, c);
+  }
+  const unique = [...bestByToken.values()].sort(
+    (a, b) => a.distance - b.distance || a.idx - b.idx
+  );
+  const chosen = unique[0]?.token || "";
+  console.log(`${LOG_PREFIX} student name candidates:`, unique);
+  console.log(`${LOG_PREFIX} chosen student name:`, chosen || "(none)");
+  return chosen;
 }
 
 /** 从 daily_records 取日历用最新 YYYY-MM-DD */
@@ -340,8 +502,6 @@ async function preprocessImage(imageFileOrUrl) {
   return imageFileOrUrl;
 }
 
-const LOG_PREFIX = "[extract-reading]";
-
 /**
  * Call Google Cloud Vision DOCUMENT_TEXT_DETECTION.
  * Returns { raw_text } or throws. Never exposes API key to client.
@@ -452,6 +612,7 @@ export async function POST(request) {
           confidence: 0,
           raw_text: "",
           daily_records_json: [],
+          student_name: "",
           reading_days: null,
           extraction_status: "failed",
         },
@@ -460,6 +621,7 @@ export async function POST(request) {
     }
 
     const cumulative = parseCumulativeStats(raw_text);
+    const student_name = extractStudentName(raw_text);
     const daily_records_json = parseDailyRows(raw_text);
     const latestOcrDateForCalendar = getLatestOcrDateFromDailyRecords(daily_records_json);
     console.log(
@@ -485,6 +647,7 @@ export async function POST(request) {
       confidence,
       raw_text,
       daily_records_json,
+      student_name,
       reading_days,
       extraction_status: status,
     };
@@ -496,6 +659,7 @@ export async function POST(request) {
         total_time_minutes: result.total_time_minutes,
         total_books: result.total_books,
         total_reading_days: result.total_reading_days,
+        student_name: result.student_name,
         daily_records_json_length: daily_records_json.length,
         reading_days: result.reading_days,
         extraction_status: result.extraction_status,
@@ -515,6 +679,7 @@ export async function POST(request) {
         confidence: 0,
         raw_text: "",
         daily_records_json: [],
+        student_name: "",
         reading_days: null,
         extraction_status: "failed",
       },

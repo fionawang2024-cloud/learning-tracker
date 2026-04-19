@@ -7,6 +7,7 @@ import {
   getDiaryWeekDaysForRecord,
   normalizeDiaryDateYMD,
 } from "@/lib/diaryDate";
+import { WEEKDAY_HEADERS_CN } from "@/lib/teacherReadingCalendar";
 
 /**
  * 多选日记完成日：点击切换选中，每次变更立即回调父级写 diary_days。
@@ -66,6 +67,13 @@ export function DiaryWeekDaysPicker({ diaryRecord, onChangeDiaryDays, disabled =
         </Button>
       </div>
       <p className="text-xs text-gray-500">同一篇上传可对应多天内容；选中为已完成，再点可取消</p>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-gray-600">
+        {WEEKDAY_HEADERS_CN.map((label) => (
+          <div key={label} className="py-0.5">
+            {label}
+          </div>
+        ))}
+      </div>
       <div className="grid grid-cols-7 gap-1 text-center text-xs">
         {weekDays.map((d) => {
           const on = selectedSet.has(d.dateStr);
@@ -84,8 +92,8 @@ export function DiaryWeekDaysPicker({ diaryRecord, onChangeDiaryDays, disabled =
               }`}
               onClick={() => toggle(d.dateStr)}
             >
-              <div>{d.labelDay}日</div>
-              <div className="mt-0.5 text-[10px] opacity-80">{d.weekday}</div>
+              <div className="font-medium">{d.labelDay}</div>
+              <div className="mt-0.5 text-[10px] opacity-80">{d.dateStr.slice(5)}</div>
             </button>
           );
         })}
